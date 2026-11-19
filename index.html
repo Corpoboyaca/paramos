@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geovisor de Páramos</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css">
+<style>
+  html, body, #map { width:100%; height:100%; margin:0; padding:0; font-family:Arial, sans-serif; }
+  .leaflet-container { font-size:1rem; }
+  .foliumtooltip { background:#2c3e50; color:#fff; font:12px Arial; padding:8px; border-radius:3px; }
+  .foliumtooltip table, .foliumpopup table { margin:auto; }
+  .foliumtooltip tr, .foliumpopup tr { text-align:left; }
+  .foliumtooltip th, .foliumpopup th { padding:2px 8px 2px 2px; }
+  .foliumpopup .leaflet-popup-content-wrapper, .foliumpopup { font:12px Arial; }
+  #leyenda { position:absolute; bottom:30px; right:10px; width:250px; max-width:calc(100% - 20px);
+    max-height:70%; overflow:auto; background:#fff; border:2px solid #2c3e50; border-radius:5px;
+    padding:0 0 10px; font-size:12px; z-index:1000; box-shadow:0 0 15px rgba(0,0,0,.2); }
+  #leyenda .tit { background:#2c3e50; color:#fff; padding:10px; font-weight:bold; text-align:center;
+    font-size:14px; cursor:pointer; border-radius:3px 3px 0 0; }
+  #leyenda .cuerpo { padding:10px 12px 0; }
+  #leyenda.cerrada .cuerpo { display:none; }
+  .fila { display:flex; align-items:center; margin-bottom:5px; }
+  .muestra { display:inline-block; width:25px; height:18px; margin-right:10px; border:1px solid #333; border-radius:2px; flex:none; }
+  #estado { position:absolute; top:70px; left:50%; transform:translateX(-50%); background:#fff; padding:6px 12px;
+    border-radius:4px; box-shadow:0 0 8px rgba(0,0,0,.3); z-index:1000; font-size:13px; }
+  @media (max-width:600px){ #leyenda{ bottom:24px; right:6px; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="estado">Cargando polígonos…</div>
+
+<div id="leyenda" class="cerrada">
+  <div class="tit" id="btnLeyenda">🗺️ Mapa de Páramos <small>(ver/ocultar)</small></div>
+  <div class="cuerpo">
+    <div style="margin-bottom:10px;padding:5px;background:#f8f9fa;border-radius:3px;"><b>📊 Polígonos:</b> 7</div>
+    <div style="font-weight:bold;color:#2c3e50;margin-bottom:5px;">🎨 Colores:</div>
+    <div class="fila"><span class="muestra" style="background:#ea4747;opacity:.4"></span>Polígonos únicos</div>
+    <div class="fila"><span class="muestra" style="background:#FF5722"></span>Polígono seleccionado</div>
+    <div style="font-weight:bold;color:#2c3e50;margin:10px 0 5px;">📋 Atributos:</div>
+    <div style="font-size:11px;line-height:1.4;">• <b>Sector</b>: par_sector<br>• <b>Nombre Complejo</b>: par_nom_co<br>• <b>Área (ha)</b>: par_areaha</div>
+    <hr style="margin:12px 0;border:none;border-top:1px solid #ddd;">
+    <div style="font-size:11px;color:#555;">
+      <b>🖱️ Interacción:</b><br>• Click en polígono: ver atributos<br>• Pasar cursor: ver nombre<br>• Rueda: zoom in/out
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+<script>
+(function () {
+  var map = L.map('map', { center: [5.8145, -73.0106], zoom: 10 });
+  L.control.scale().addTo(map);
+
+  var osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
+  var esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 18, attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics' });
+  var carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    { maxZoom: 20, subdomains: 'abcd', attribution: '© OpenStreetMap contributors © CARTO' });
+
+  var colores = ['#ea4747', '#ead347', '#76ea47', '#47eaa4', '#47a4ea', '#7647ea'];
+  function estilo(f) {
+    return { color: '#333333', fillColor: colores[f.id] || '#ea47d3', fillOpacity: 0.4, opacity: 0.7, weight: 1.5 };
+  }
+  function tabla(campos, alias, p) {
+    return '<table>' + campos.map(function (c, i) {
+      var v = p[c]; if (typeof v === 'number') v = v.toLocaleString('es-CO');
+      return '<tr><th>' + alias[i] + '</th><td>' + v + '</td></tr>';
+    }).join('') + '</table>';
+  }
+
+  var paramos = L.geoJson(null, {
+    style: estilo,
+    onEachFeature: function (f, layer) {
+      layer.on({
+        mouseover: function (e) { e.target.setStyle({ color: '#FF5722', fillOpacity: 0.6, weight: 3 }); },
+        mouseout: function (e) { paramos.resetStyle(e.target); }
+      });
+      layer.bindTooltip(tabla(['par_nom_co'], ['Complejo:'], f.properties), { sticky: false, className: 'foliumtooltip' });
+      layer.bindPopup(tabla(['par_sector', 'par_nom_co', 'par_areaha'], ['Sector', 'Nombre Complejo', 'Área (ha)'], f.properties),
+        { maxWidth: 350, className: 'foliumpopup' });
+    }
+  }).addTo(map);
+
+  L.control.layers(
+    { 'OpenStreetMap': osm, 'ESRI Satélite': esri, 'Carto Claro': carto },
+    { 'Polígonos de Páramo': paramos },
+    { position: 'topright', collapsed: true }
+  ).addTo(map);
+
+  fetch('paramos.geojson')
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (d) {
+      paramos.addData(d);
+      document.getElementById('estado').remove();
+    })
+    .catch(function (e) {
+      document.getElementById('estado').textContent = 'No se pudo cargar paramos.geojson (' + e.message + ')';
+    });
+
+  document.getElementById('btnLeyenda').onclick = function () {
+    document.getElementById('leyenda').classList.toggle('cerrada');
+  };
+})();
+</script>
+</body>
+</html>
